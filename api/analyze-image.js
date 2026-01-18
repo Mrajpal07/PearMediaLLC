@@ -45,10 +45,12 @@ function getMimeType(dataUrl) {
 async function analyzeWithGemini(apiKey, imageBase64) {
     // List of models to try in order of preference/stability
     const models = [
-        'gemini-1.5-flash',
-        'gemini-1.5-flash-latest',
-        'gemini-2.0-flash-exp',
-        'gemini-1.5-pro'
+        'gemini-1.5-flash-001', // Stable version
+        'gemini-1.5-flash-002', // Newer stable
+        'gemini-1.5-flash',     // Alias
+        'gemini-1.5-flash-8b',  // High efficiency
+        'gemini-2.0-flash-exp', // Experimental (Good but hits quota)
+        'gemini-1.5-pro'        // Fallback
     ]
 
     const mimeType = getMimeType(imageBase64)
