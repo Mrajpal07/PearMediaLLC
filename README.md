@@ -424,43 +424,6 @@ catch (error) {
 
 ---
 
-## 🌐 Deployment
-
-### Vercel (Recommended)
-
-1. **Push to GitHub:**
-   ```bash
-   git add .
-   git commit -m "Deploy"
-   git push origin main
-   ```
-
-2. **Import to Vercel:**
-   - Go to [vercel.com/new](https://vercel.com/new)
-   - Import your repository
-   - Vercel auto-detects Vite configuration
-
-3. **Configure Environment Variables:**
-   - Navigate to Settings → Environment Variables
-   - Add your API keys (at minimum: `GOOGLE_API_KEY`)
-
-4. **Deploy!**
-
-### Docker (Alternative)
-
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-EXPOSE 3000
-CMD ["npm", "run", "preview"]
-```
-
----
-
 ## 📁 Project Structure
 
 ```
@@ -521,6 +484,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 <p align="center">
-  <strong>Built with ❤️ by PearMedia AI Team</strong><br>
+  <strong>Made By Manik Rajpal</strong><br>
   <sub>© 2026 PearMedia AI — Production-Grade AI for Everyone</sub>
 </p>
