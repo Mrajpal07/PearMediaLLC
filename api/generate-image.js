@@ -3,15 +3,14 @@
  *
  * POST /api/generate-image
  *
- * Generates images using multiple providers with sophisticated fallback:
+ * Generates images using AI providers ONLY (No stock photo fallback):
  * 1. Google Gemini (Imagen 3) - Primary (if configured)
  * 2. Together.ai (FLUX) - Secondary (if configured)
  * 3. OpenAI (DALL-E) - Tertiary (if configured)
- * 4. Pollinations.ai (Flux) - Free high-quality fallback
- * 5. LoremFlickr - Visual Failsafe (Stock photos)
+ * 4. Pollinations.ai (Flux) - Free high-quality Fallback
  * 
  * Environment Variables:
- * - IMAGE_PROVIDER: Force provider (gemini, together, openai, pollinations, fallback)
+ * - IMAGE_PROVIDER: Force provider (gemini, together, openai, pollinations)
  * - GOOGLE_API_KEY: Required for gemini
  * - TOGETHER_API_KEY: Required for together
  * - OPENAI_API_KEY: Required for openai
@@ -25,55 +24,39 @@ function setSecurityHeaders(res) {
 
 function buildPrompt(prompt, style) {
     if (!style) return prompt
-
-    // Improved style merging
     return `${prompt}. Image style: ${style}`
 }
 
 /**
- * Level 5: LoremFlickr (Stock Photos)
- * Absolute last resort failsafe
- */
-async function generateWithStockFallback(prompt, imageCount) {
-    const images = []
-    // Extract first valid noun-like keyword (simplified)
-    const words = prompt.split(' ').filter(w => w.length > 3)
-    const keyword = words[0] || 'nature' // Use single strong keyword for better relevance
-
-    for (let i = 0; i < imageCount; i++) {
-        const random = Math.floor(Math.random() * 100000)
-        const imageUrl = `https://loremflickr.com/1024/1024/${encodeURIComponent(keyword)}?random=${random}`
-        images.push(imageUrl)
-    }
-    return images
-}
-
-/**
- * Level 4: Pollinations.ai (Flux Model)
- * Free, high quality AI generation. Rate limited sometimes.
+ * Pollinations.ai (Flux Model)
+ * Free, high quality AI generation. 
+ * This is the primary "Free Tier" provider.
  */
 async function generateWithPollinations(prompt, imageCount) {
     const images = []
 
     for (let i = 0; i < imageCount; i++) {
+        // Random seed for variation
         const seed = Math.floor(Math.random() * 10000000)
         const encodedPrompt = encodeURIComponent(prompt)
-        // Use Flux model, no logo, private to avoid caching issues
-        // enhance=false speeds it up
-        const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux&private=true&enhance=false`
+
+        // Use Flux model for best accuracy
+        // nologo=true: Removes watermark
+        // private=true: Avoids public gallery (and potential rate limit overlap)
+        // enhance=true: Slight prompt enhancement for better results
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux&private=true&enhance=true`
+
+        console.log(`Generated Pollinations URL: ${imageUrl}`)
         images.push(imageUrl)
     }
     return images
 }
 
-/**
- * Level 1: Google Gemini (Imagen 3)
- * Free tier, high quality
- */
 async function generateWithGemini(prompt, imageCount) {
     const apiKey = process.env.GOOGLE_API_KEY
     if (!apiKey) throw new Error('GOOGLE_API_KEY not set')
 
+    console.log('Using Gemini (Imagen 3)...')
     const model = 'imagen-3.0-generate-001'
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${apiKey}`
 
@@ -88,7 +71,7 @@ async function generateWithGemini(prompt, imageCount) {
             parameters: {
                 sampleCount: Math.min(imageCount, 4),
                 aspectRatio: "1:1",
-                // Add safety settings to reduce aggressive filtering
+                // Reduced safety filters to prevent over-blocking
                 safetySettings: [
                     { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
                     { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
@@ -101,7 +84,8 @@ async function generateWithGemini(prompt, imageCount) {
 
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error?.message || `Gemini API error ${response.status}`)
+        const msg = errorData.error?.message || `Gemini API error ${response.status}`
+        throw new Error(msg)
     }
 
     const data = await response.json()
@@ -114,6 +98,7 @@ async function generateWithTogether(prompt, imageCount) {
     const apiKey = process.env.TOGETHER_API_KEY
     if (!apiKey) throw new Error('TOGETHER_API_KEY not set')
 
+    console.log('Using Together.ai (FLUX)...')
     const response = await fetch('https://api.together.xyz/v1/images/generations', {
         method: 'POST',
         headers: {
@@ -140,6 +125,7 @@ async function generateWithOpenAI(prompt, imageCount) {
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) throw new Error('OPENAI_API_KEY not set')
 
+    console.log('Using OpenAI (DALL-E 3)...')
     const images = []
     for (let i = 0; i < imageCount; i++) {
         const response = await fetch('https://api.openai.com/v1/images/generations', {
@@ -173,33 +159,38 @@ async function generateImages(prompt, imageCount) {
         if (process.env.GOOGLE_API_KEY) provider = 'gemini'
         else if (process.env.TOGETHER_API_KEY) provider = 'together'
         else if (process.env.OPENAI_API_KEY) provider = 'openai'
-        else provider = 'pollinations' // Use Free AI by default instead of fallback
+        else provider = 'pollinations' // Default to Free AI
     }
 
-    // Try Primary Provider
+    console.log(`Selected Provider: ${provider}`)
+
     try {
         switch (provider) {
             case 'gemini': return await generateWithGemini(prompt, imageCount)
             case 'together': return await generateWithTogether(prompt, imageCount)
             case 'openai': return await generateWithOpenAI(prompt, imageCount)
             case 'pollinations': return await generateWithPollinations(prompt, imageCount)
-            default: return await generateWithStockFallback(prompt, imageCount)
+            default:
+                // If unknown, default to Pollinations
+                return await generateWithPollinations(prompt, imageCount)
         }
     } catch (e) {
         console.warn(`Primary provider ${provider} failed: ${e.message}`)
 
-        // 1st Fallback: Pollinations (Free AI)
+        // Auto-Fallback Logic
+        // If the primary wasn't Pollinations, try Pollinations (Free Flux)
         if (provider !== 'pollinations') {
             try {
-                console.log('Falling back to Pollinations AI...')
+                console.log('Failing over to Pollinations.ai (Flux)...')
                 return await generateWithPollinations(prompt, imageCount)
             } catch (pError) {
-                console.warn('Pollinations failed, moving to stock photos.')
+                console.error('Pollinations fallback failed:', pError.message)
             }
         }
 
-        // 2nd Fallback: Stock Photos (Guaranteed)
-        return await generateWithStockFallback(prompt, imageCount)
+        // NO STOCK PHOTO FALLBACK.
+        // Re-throw the error so the UI shows failure message instead of bad image.
+        throw new Error(`Generation failed. Provider ${provider} and fallback both failed.`)
     }
 }
 
@@ -210,6 +201,7 @@ export default async function handler(req, res) {
     const { prompt, style } = req.body
     if (!prompt) return res.status(400).json({ error: 'Missing prompt' })
 
+    // Limit count to 4 max
     const imageCount = Math.min(Math.max(1, parseInt(process.env.IMAGE_COUNT || '2', 10)), 4)
 
     try {
@@ -217,7 +209,11 @@ export default async function handler(req, res) {
         const imageUrls = await generateImages(finalPrompt, imageCount)
         return res.status(200).json({ images: imageUrls })
     } catch (error) {
-        console.error('Final generation error:', error)
-        return res.status(500).json({ error: 'Failed to generate images' })
+        console.error('Final generation error:', error.message)
+
+        // Return descriptive error to UI so user knows AI is busy/down
+        return res.status(503).json({
+            error: 'AI Generation Service Unavailable. Please try again later or check API keys.'
+        })
     }
 }
