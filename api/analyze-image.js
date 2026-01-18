@@ -4,14 +4,8 @@
  * POST /api/analyze-image
  *
  * Analyzes an image using:
- * 1. Google Gemini (Gemini 1.5 Flash) - Primary (Free/Fast)
+ * 1. Google Gemini (Gemini 1.5 Flash/Pro) - Primary (Free/Fast)
  * 2. OpenAI (GPT-4o) - Secondary
- *
- * Request:
- * - Content-Type: application/json
- * - Body (one of):
- *     { "imageUrl": "https://..." }
- *     { "imageBase64": "data:image/png;base64,..." }
  */
 
 const SYSTEM_PROMPT = `Analyze the provided image and extract:
@@ -49,43 +43,63 @@ function getMimeType(dataUrl) {
 }
 
 async function analyzeWithGemini(apiKey, imageBase64) {
-    const model = 'gemini-1.5-flash'
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+    // List of models to try in order of preference/stability
+    const models = [
+        'gemini-1.5-flash',
+        'gemini-1.5-flash-latest',
+        'gemini-2.0-flash-exp',
+        'gemini-1.5-pro'
+    ]
 
     const mimeType = getMimeType(imageBase64)
     const rawBase64 = getBase64Data(imageBase64)
+    let lastError = null
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{
-                parts: [
-                    { text: SYSTEM_PROMPT },
-                    {
-                        inline_data: {
-                            mime_type: mimeType,
-                            data: rawBase64
-                        }
+    for (const model of models) {
+        try {
+            console.log(`Trying Gemini model: ${model}...`)
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { text: SYSTEM_PROMPT },
+                            {
+                                inline_data: {
+                                    mime_type: mimeType,
+                                    data: rawBase64
+                                }
+                            }
+                        ]
+                    }],
+                    generationConfig: {
+                        response_mime_type: "application/json"
                     }
-                ]
-            }],
-            generationConfig: {
-                response_mime_type: "application/json"
-            }
-        })
-    })
+                })
+            })
 
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        throw new Error(err.error?.message || `Gemini Vision error ${response.status}`)
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}))
+                throw new Error(err.error?.message || `Status ${response.status}`)
+            }
+
+            const data = await response.json()
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+            if (!text) throw new Error('Empty response')
+
+            return JSON.parse(text)
+
+        } catch (e) {
+            console.warn(`Gemini model ${model} failed: ${e.message}`)
+            lastError = e
+            // Continue to next model
+        }
     }
 
-    const data = await response.json()
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!text) throw new Error('Gemini returned empty response')
-
-    return JSON.parse(text)
+    throw lastError || new Error('All Gemini models failed')
 }
 
 async function analyzeWithOpenAI(apiKey, imageSource, isUrl) {
