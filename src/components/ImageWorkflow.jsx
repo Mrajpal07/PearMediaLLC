@@ -114,24 +114,45 @@ function ImageWorkflow() {
             try {
                 if (!window.puter) throw new Error('Puter.js not loaded')
 
-                // Puter Chat can accept image as 2nd arg? Or prompt describing image?
-                // Documentation is sparse, attempting generic chat with image context
-                // If direct image not supported, we assume fallback to simple prompt
-
-                const prompt = "Analyze this image and describe the objects, style, mood, and lighting. Then give me a prompt to recreate it. Keep the response concise."
+                // Improved prompt to request structured JSON
+                const prompt = `Analyze this image. Return a VALID JSON object with:
+                {
+                    "analysis": {
+                        "objects": ["list", "of", "items"],
+                        "style": "artistic style",
+                        "mood": "emotional atmosphere",
+                        "lighting": "lighting description"
+                    },
+                    "suggestedPrompt": "a detailed generation prompt..."
+                }
+                Do not include markdown formatting or backticks. Just the raw JSON.`
 
                 // Real attempt:
                 const resp = await window.puter.ai.chat(prompt, selectedImage)
-                const text = typeof resp === 'object' ? resp.message?.content || resp.toString() : resp.toString()
+                let text = typeof resp === 'object' ? resp.message?.content || resp.toString() : resp.toString()
 
-                // Parse pseudo-analysis
-                setAnalysis({
-                    objects: ['Detected elements'],
-                    style: 'AI Analyzed',
-                    mood: 'Auto',
-                    lighting: 'Auto'
-                })
-                setSuggestedPrompt(text) // Remove substring limit
+                // Clean potential markdown code blocks
+                text = text.replace(/```json/g, '').replace(/```/g, '').trim()
+
+                let parsedData
+                try {
+                    parsedData = JSON.parse(text)
+                } catch (e) {
+                    console.warn('Failed to parse Puter JSON, falling back to text', e)
+                    // Fallback if AI returns plain text instead of JSON
+                    parsedData = {
+                        analysis: {
+                            objects: ['Detected elements'],
+                            style: 'AI Analyzed',
+                            mood: 'Auto',
+                            lighting: 'Auto'
+                        },
+                        suggestedPrompt: text
+                    }
+                }
+
+                setAnalysis(parsedData.analysis)
+                setSuggestedPrompt(parsedData.suggestedPrompt)
                 setStep(2)
                 setStatus({ type: 'success', message: 'Analyzed with Puter.js!' })
 
