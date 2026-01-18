@@ -4,9 +4,9 @@
  * POST /api/generate-image
  *
  * Generates images using multiple providers:
+ * - Google Gemini (Imagen 3) - Free tier, high quality
  * - Together.ai (FLUX.1-schnell) - Best quality/price balance
  * - OpenAI DALL-E 3 (paid, best prompt adherence)
- * - Hugging Face (deprecated/limited)
  * - LoremFlickr (visual fallback)
  *
  * Request:
@@ -22,7 +22,8 @@
  * }
  *
  * Environment Variables:
- * - IMAGE_PROVIDER: Provider to use (together, openai, huggingface, fallback) - default: together
+ * - IMAGE_PROVIDER: Provider to use (gemini, together, openai, fallback)
+ * - GOOGLE_API_KEY: Required for gemini provider
  * - TOGETHER_API_KEY: Required for together provider
  * - OPENAI_API_KEY: Required for openai provider
  * - IMAGE_COUNT: Number of images (1-4, default: 2)
@@ -81,8 +82,61 @@ async function generateWithFallback(prompt, imageCount) {
 }
 
 /**
+ * Generate images using Google Gemini (Imagen 3)
+ * Requires GOOGLE_API_KEY environment variable
+ */
+async function generateWithGemini(prompt, imageCount) {
+    const apiKey = process.env.GOOGLE_API_KEY
+
+    if (!apiKey) {
+        throw new Error('GOOGLE_API_KEY environment variable is not set')
+    }
+
+    // Using Imagen 3 via Gemini API
+    // Note: This endpoint is subject to change as it is in preview/beta
+    const model = 'imagen-3.0-generate-001'
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${apiKey}`
+
+    const images = []
+
+    // Gemini generates 1-4 images per request
+    // We make one request for simplicity if count <= 4
+    const count = Math.min(imageCount, 4)
+
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            instances: [
+                { prompt: prompt }
+            ],
+            parameters: {
+                sampleCount: count,
+                aspectRatio: "1:1"
+            }
+        })
+    })
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.error?.message || `Gemini API error: ${response.status}`
+        throw new Error(errorMessage)
+    }
+
+    const data = await response.json()
+
+    if (!data.predictions) {
+        throw new Error('Invalid response from Gemini API')
+    }
+
+    // predictions contains array of { bytesBase64Encoded: string, mimeType: string }
+    return data.predictions.map(pred => `data:${pred.mimeType};base64,${pred.bytesBase64Encoded}`)
+}
+
+/**
  * Generate images using Together.ai (FLUX.1-schnell)
- * Requires TOGETHER_API_KEY environment variable
  */
 async function generateWithTogether(prompt, imageCount) {
     const apiKey = process.env.TOGETHER_API_KEY
@@ -107,7 +161,7 @@ async function generateWithTogether(prompt, imageCount) {
             n: imageCount,
             width: 1024,
             height: 1024,
-            steps: 4, // Schnell only needs 4 steps
+            steps: 4,
             response_format: 'base64'
         })
     })
@@ -124,7 +178,6 @@ async function generateWithTogether(prompt, imageCount) {
         throw new Error('Invalid response from Together.ai API')
     }
 
-    // Convert base64 responses to data URLs
     return data.data.map(item => `data:image/jpeg;base64,${item.b64_json}`)
 }
 
@@ -181,21 +234,28 @@ async function generateWithOpenAI(prompt, imageCount) {
  * Main image generation function - routes to appropriate provider
  */
 async function generateImages(prompt, imageCount) {
-    // Check environment variables to determine default provider preference
     let provider = (process.env.IMAGE_PROVIDER || '').toLowerCase()
 
-    // Smart default: If TOGETHER_API_KEY exists, assume user wants to use it
-    if (!provider && process.env.TOGETHER_API_KEY) {
+    // Smart default: Prioritize GOOGLE_API_KEY if present for free Imagen 3
+    if (!provider && process.env.GOOGLE_API_KEY) {
+        provider = 'gemini'
+    } else if (!provider && process.env.TOGETHER_API_KEY) {
         provider = 'together'
+    } else if (!provider && process.env.OPENAI_API_KEY) {
+        provider = 'openai'
     }
 
-    // Default fallback if nothing specified
+    // Default fallback
     if (!provider) {
         provider = 'fallback'
     }
 
     try {
         switch (provider) {
+            case 'gemini':
+            case 'google':
+                return await generateWithGemini(prompt, imageCount)
+
             case 'together':
                 return await generateWithTogether(prompt, imageCount)
 
@@ -204,8 +264,6 @@ async function generateImages(prompt, imageCount) {
 
             case 'fallback':
             default:
-                // If it's a known provider that isn't implemented above (e.g. huggingface), 
-                // or just default, try fallback
                 return await generateWithFallback(prompt, imageCount)
         }
     } catch (error) {
