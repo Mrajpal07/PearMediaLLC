@@ -3,7 +3,8 @@
  *
  * POST /api/generate-image
  *
- * Generates images using OpenAI DALL-E 3 based on enhanced prompts.
+ * Generates images using any OpenAI-compatible image generation API.
+ * Supports: OpenAI DALL-E, Hugging Face, and other compatible providers.
  *
  * Request:
  * - Content-Type: application/json
@@ -17,10 +18,20 @@
  *   "images": ["url1", "url2", ...]
  * }
  *
- * Environment Variables Required:
- * - OPENAI_API_KEY: OpenAI API key
- * - OPENAI_BASE_URL: (Optional) Custom base URL for compatible APIs
- * - IMAGE_COUNT: (Optional) Number of images to generate (1-3, default: 2)
+ * Environment Variables:
+ * - OPENAI_API_KEY: API key (OpenAI, Hugging Face, etc.) - REQUIRED
+ * - OPENAI_BASE_URL: Custom base URL (default: https://api.openai.com/v1)
+ * - IMAGE_MODEL: Model to use (default: dall-e-3)
+ * - IMAGE_COUNT: Number of images to generate (1-10, default: 2)
+ * - IMAGE_SIZE: Image dimensions (default: 1024x1024)
+ * - IMAGE_QUALITY: Quality setting (default: standard, options: standard/hd)
+ * - USE_HUGGINGFACE: Set to 'true' for Hugging Face compatibility
+ *
+ * Provider Examples:
+ * - OpenAI DALL-E 3: IMAGE_MODEL=dall-e-3, OPENAI_BASE_URL=https://api.openai.com/v1
+ * - Hugging Face SDXL: IMAGE_MODEL=stabilityai/stable-diffusion-xl-base-1.0,
+ *                      OPENAI_BASE_URL=https://api-inference.huggingface.co/v1,
+ *                      USE_HUGGINGFACE=true
  */
 
 /**
@@ -59,26 +70,62 @@ function buildPrompt(prompt, style) {
 }
 
 /**
- * Call OpenAI DALL-E API to generate images
+ * Call LLM provider's image generation API
+ * Supports: OpenAI DALL-E, Hugging Face, and other OpenAI-compatible APIs
  */
 async function generateImages(prompt, imageCount) {
     const apiKey = process.env.OPENAI_API_KEY
     const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
+    const model = process.env.IMAGE_MODEL || 'dall-e-3'
+    const size = process.env.IMAGE_SIZE || '1024x1024'
+    const quality = process.env.IMAGE_QUALITY || 'standard'
+    const useHuggingFace = process.env.USE_HUGGINGFACE === 'true'
 
     if (!apiKey) {
         throw new Error('OPENAI_API_KEY environment variable is not set')
     }
 
-    // DALL-E 3 supports n=1 only, DALL-E 2 supports n=1-10
-    // We'll use DALL-E 3 for quality but generate sequentially if needed
-    const model = 'dall-e-3'
-    const size = '1024x1024'
-    const quality = 'standard' // 'standard' or 'hd'
-
     const images = []
 
-    // Generate images sequentially (DALL-E 3 limitation: n=1 only)
-    for (let i = 0; i < imageCount; i++) {
+    // Determine if we need sequential generation (DALL-E 3 limitation: n=1)
+    const isDallE3 = model.toLowerCase().includes('dall-e-3')
+    const needsSequential = isDallE3 || useHuggingFace
+
+    if (needsSequential) {
+        // Generate images sequentially
+        for (let i = 0; i < imageCount; i++) {
+            const response = await fetch(`${baseUrl}/images/generations`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model,
+                    prompt,
+                    n: 1,
+                    size,
+                    quality: isDallE3 ? quality : undefined, // Only DALL-E 3 supports quality
+                    response_format: 'url' // 'url' or 'b64_json'
+                })
+            })
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}))
+                const errorMessage = errorData.error?.message || `Image generation failed with status ${response.status}`
+                throw new Error(errorMessage)
+            }
+
+            const data = await response.json()
+
+            if (!data.data || !data.data[0] || !data.data[0].url) {
+                throw new Error('Invalid response from image generation API')
+            }
+
+            images.push(data.data[0].url)
+        }
+    } else {
+        // Generate all images in one request (DALL-E 2, other providers)
         const response = await fetch(`${baseUrl}/images/generations`, {
             method: 'POST',
             headers: {
@@ -88,10 +135,9 @@ async function generateImages(prompt, imageCount) {
             body: JSON.stringify({
                 model,
                 prompt,
-                n: 1,
+                n: imageCount,
                 size,
-                quality,
-                response_format: 'url' // 'url' or 'b64_json'
+                response_format: 'url'
             })
         })
 
@@ -103,11 +149,11 @@ async function generateImages(prompt, imageCount) {
 
         const data = await response.json()
 
-        if (!data.data || !data.data[0] || !data.data[0].url) {
+        if (!data.data || data.data.length === 0) {
             throw new Error('Invalid response from image generation API')
         }
 
-        images.push(data.data[0].url)
+        images.push(...data.data.map(item => item.url))
     }
 
     return images

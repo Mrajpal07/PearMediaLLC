@@ -3,7 +3,8 @@
  *
  * POST /api/analyze-image
  *
- * Analyzes an image using OpenAI Vision (GPT-4o) and generates a suggested prompt.
+ * Analyzes an image using any OpenAI-compatible vision model and generates a suggested prompt.
+ * Supports: OpenAI GPT-4o Vision, Hugging Face LLaVA, and other multimodal LLMs.
  *
  * Request:
  * - Content-Type: application/json
@@ -22,10 +23,15 @@
  *   "suggestedPrompt": "A detailed prompt suitable for DALL-E / diffusion models"
  * }
  *
- * Environment Variables Required:
- * - OPENAI_API_KEY: OpenAI API key
- * - OPENAI_BASE_URL: (Optional) Custom base URL for compatible APIs
- * - VISION_MODEL: (Optional) Model to use, defaults to gpt-4o
+ * Environment Variables:
+ * - OPENAI_API_KEY: API key (OpenAI, Hugging Face, etc.) - REQUIRED
+ * - OPENAI_BASE_URL: Custom base URL (default: https://api.openai.com/v1)
+ * - VISION_MODEL: Vision model to use (default: gpt-4o)
+ *
+ * Provider Examples:
+ * - OpenAI: VISION_MODEL=gpt-4o
+ * - Hugging Face: VISION_MODEL=llava-hf/llava-v1.6-mistral-7b-hf,
+ *                 OPENAI_BASE_URL=https://api-inference.huggingface.co/v1
  */
 
 const SYSTEM_PROMPT = `You are an expert image analyst specializing in visual content analysis for AI image generation.

@@ -1,14 +1,15 @@
 /**
  * Enhance Text API Route
- * 
+ *
  * POST /api/enhance-text
- * 
+ *
  * Analyzes user input and rewrites it into a high-quality image generation prompt.
- * 
+ * Supports: OpenAI, Hugging Face, Azure OpenAI, and any OpenAI-compatible LLM API.
+ *
  * Request:
  * - Content-Type: application/json
  * - Body: { prompt: string }
- * 
+ *
  * Response:
  * {
  *   "analysis": {
@@ -18,11 +19,16 @@
  *   },
  *   "enhancedPrompt": "Rewritten high-quality image generation prompt"
  * }
- * 
- * Environment Variables Required:
- * - OPENAI_API_KEY: OpenAI API key (or compatible API like Azure OpenAI)
- * - OPENAI_BASE_URL: (Optional) Custom base URL for Claude-compatible APIs
- * - OPENAI_MODEL: (Optional) Model to use, defaults to gpt-4o-mini
+ *
+ * Environment Variables:
+ * - OPENAI_API_KEY: API key (OpenAI, Hugging Face, etc.) - REQUIRED
+ * - OPENAI_BASE_URL: Custom base URL (default: https://api.openai.com/v1)
+ * - OPENAI_MODEL: Model to use (default: gpt-4o-mini)
+ *
+ * Provider Examples:
+ * - OpenAI: OPENAI_MODEL=gpt-4o-mini
+ * - Hugging Face: OPENAI_MODEL=meta-llama/Meta-Llama-3.1-70B-Instruct,
+ *                 OPENAI_BASE_URL=https://api-inference.huggingface.co/v1
  */
 
 const SYSTEM_PROMPT = `You are an expert prompt engineer specializing in image generation prompts.

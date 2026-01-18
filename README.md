@@ -32,16 +32,28 @@ PearMedia AI is a production-ready AI content platform featuring two intelligent
 
 ### **Text Workflow** (4 Steps)
 1. **Input** — User enters a basic text prompt
-2. **Analyze** — AI analyzes intent, tone, and style using GPT-4o-mini
+2. **Analyze** — AI analyzes intent, tone, and style
 3. **Approve** — User reviews enhanced prompt
-4. **Generate** — Creates images using DALL-E 3
+4. **Generate** — Creates images using AI
 
 ### **Image Workflow** (3 Steps)
 1. **Upload** — User uploads an image (drag & drop or file picker)
-2. **Analyze** — AI analyzes image using GPT-4o Vision API
+2. **Analyze** — AI analyzes image using vision models
 3. **Generate** — Creates variations based on analysis
 
-**Status:** ✅ Production-ready with full OpenAI integration
+**Status:** ✅ Production-ready with **provider-agnostic** API integration
+
+### **Supported LLM Providers**
+
+PearMedia AI works with **any OpenAI-compatible API**:
+
+- ✅ **OpenAI** (GPT-4o, DALL-E 3) — Best quality, recommended for production
+- ✅ **Hugging Face** (Llama, FLUX, SDXL) — Free tier available, great for development
+- ✅ **Azure OpenAI** — Enterprise-grade with SLA
+- ✅ **Together.ai, Anyscale** — Cost-effective alternatives
+- ✅ **Self-hosted** (LiteLLM, Ollama) — Full control
+
+**See [PROVIDER_SETUP.md](PROVIDER_SETUP.md) for detailed configuration guides.**
 
 ---
 
@@ -293,7 +305,10 @@ PearMedia AI is a production-ready AI content platform featuring two intelligent
 ### **Prerequisites**
 
 - Node.js 18+ and npm
-- OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
+- LLM API key from one of:
+  - [OpenAI](https://platform.openai.com/api-keys) (recommended for production)
+  - [Hugging Face](https://huggingface.co/settings/tokens) (free tier available)
+  - Azure OpenAI, Together.ai, or any OpenAI-compatible API
 - Git
 
 ### **Installation**
@@ -537,42 +552,79 @@ Styles are appended to prompts as suffixes:
 
 ## ⚙️ Environment Configuration
 
+PearMedia AI supports **any OpenAI-compatible LLM provider** including OpenAI, Hugging Face, Azure OpenAI, and more.
+
 ### **Required Variables**
 
 Create a `.env.local` file (local) or set in Vercel Dashboard (production):
 
 ```bash
-# Required: OpenAI API Key
-OPENAI_API_KEY=sk-proj-...
+# Required: LLM API Key (works with any provider)
+# OpenAI: sk-proj-...
+# Hugging Face: hf_...
+# Azure/Others: your-api-key
+OPENAI_API_KEY=your-api-key-here
 ```
 
 ### **Optional Variables**
 
 ```bash
-# Optional: Custom OpenAI-compatible API endpoint
+# Optional: Custom API endpoint (supports any OpenAI-compatible provider)
 # Default: https://api.openai.com/v1
+# Examples:
+#   - OpenAI: https://api.openai.com/v1
+#   - Hugging Face: https://api-inference.huggingface.co/v1
+#   - Azure: https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT
+#   - Together.ai: https://api.together.xyz/v1
 OPENAI_BASE_URL=https://api.openai.com/v1
 
 # Optional: Model for text enhancement
 # Default: gpt-4o-mini
+# Examples:
+#   - OpenAI: gpt-4o-mini, gpt-4o, gpt-3.5-turbo
+#   - Hugging Face: meta-llama/Meta-Llama-3.1-70B-Instruct
 OPENAI_MODEL=gpt-4o-mini
 
-# Optional: Model for image analysis
+# Optional: Model for image analysis (vision)
 # Default: gpt-4o
+# Examples:
+#   - OpenAI: gpt-4o, gpt-4-vision-preview
+#   - Hugging Face: llava-hf/llava-v1.6-mistral-7b-hf
 VISION_MODEL=gpt-4o
 
-# Optional: Number of images to generate (1-3)
+# Optional: Model for image generation
+# Default: dall-e-3
+# Examples:
+#   - OpenAI: dall-e-3, dall-e-2
+#   - Hugging Face: black-forest-labs/FLUX.1-dev, stabilityai/stable-diffusion-xl-base-1.0
+IMAGE_MODEL=dall-e-3
+
+# Optional: Number of images to generate (1-10, depends on provider)
 # Default: 2
 IMAGE_COUNT=2
+
+# Optional: Enable Hugging Face compatibility mode
+# Default: false
+USE_HUGGINGFACE=false
 ```
 
-### **Getting an OpenAI API Key**
+### **Getting an API Key**
 
+#### OpenAI (Recommended for Production)
 1. Visit [OpenAI Platform](https://platform.openai.com/)
 2. Sign up or log in
 3. Navigate to [API Keys](https://platform.openai.com/api-keys)
 4. Click "Create new secret key"
-5. Copy and save the key securely (starts with `sk-proj-...`)
+5. Copy and save the key (starts with `sk-proj-...`)
+
+#### Hugging Face (Free Tier Available)
+1. Visit [Hugging Face](https://huggingface.co/)
+2. Sign up or log in
+3. Navigate to [Settings → Access Tokens](https://huggingface.co/settings/tokens)
+4. Click "New token" → Select "Read" permissions
+5. Copy and save the token (starts with `hf_...`)
+
+**For detailed setup with Hugging Face, Azure OpenAI, and other providers, see [PROVIDER_SETUP.md](PROVIDER_SETUP.md)**
 
 **Important:** Never commit API keys to version control. Always use environment variables.
 
@@ -1059,8 +1111,10 @@ MIT License — see [LICENSE](LICENSE) for details.
 - **Live Demo:** [https://your-app.vercel.app](https://your-app.vercel.app)
 - **GitHub Repository:** [https://github.com/Mrajpal07/PearMediaLLC](https://github.com/Mrajpal07/PearMediaLLC)
 - **OpenAI Platform:** [https://platform.openai.com/](https://platform.openai.com/)
+- **Hugging Face:** [https://huggingface.co/](https://huggingface.co/)
 - **Vercel Documentation:** [https://vercel.com/docs](https://vercel.com/docs)
 - **API Implementation Guide:** [API_IMPLEMENTATION.md](API_IMPLEMENTATION.md)
+- **Provider Setup Guide:** [PROVIDER_SETUP.md](PROVIDER_SETUP.md)
 - **AI Assistant Reference:** [CLAUDE.md](CLAUDE.md)
 
 ---
