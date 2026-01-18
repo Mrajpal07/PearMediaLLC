@@ -73,7 +73,7 @@ function ImageWorkflow() {
      * API: POST /api/analyze-image { imageBase64 }
      * Response: { analysis: { objects, style, mood, lighting }, suggestedPrompt }
      */
-    const handleAnalyzeImage = async () => {
+    const handleAnalyze = async () => {
         if (!selectedImage) return
 
         setIsLoading(true)
