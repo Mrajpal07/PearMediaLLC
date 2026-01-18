@@ -94,8 +94,8 @@ async function generateWithHuggingFace(prompt, imageCount) {
     }
 
     const images = []
-    // Using FLUX.1-schnell - fast and free
-    const model = 'black-forest-labs/FLUX.1-schnell'
+    // Use Stable Diffusion XL - more reliable on free Inference API than FLUX
+    const model = 'stabilityai/stable-diffusion-xl-base-1.0'
     const endpoint = `https://api-inference.huggingface.co/models/${model}`
 
     for (let i = 0; i < imageCount; i++) {
@@ -107,9 +107,6 @@ async function generateWithHuggingFace(prompt, imageCount) {
             },
             body: JSON.stringify({
                 inputs: prompt,
-                parameters: {
-                    num_inference_steps: 4
-                }
             })
         })
 
@@ -189,21 +186,32 @@ async function generateWithOpenAI(prompt, imageCount) {
 
 /**
  * Main image generation function - routes to appropriate provider
+ * Includes AUTO-FALLBACK to Pollinations if primary provider fails
  */
 async function generateImages(prompt, imageCount) {
     const provider = (process.env.IMAGE_PROVIDER || 'pollinations').toLowerCase()
 
-    switch (provider) {
-        case 'openai':
-            return await generateWithOpenAI(prompt, imageCount)
+    try {
+        // Attempt primary provider
+        switch (provider) {
+            case 'openai':
+                return await generateWithOpenAI(prompt, imageCount)
 
-        case 'huggingface':
-        case 'hf':
-            return await generateWithHuggingFace(prompt, imageCount)
+            case 'huggingface':
+            case 'hf':
+                return await generateWithHuggingFace(prompt, imageCount)
 
-        case 'pollinations':
-        default:
-            return await generateWithPollinations(prompt, imageCount)
+            case 'pollinations':
+            default:
+                return await generateWithPollinations(prompt, imageCount)
+        }
+    } catch (error) {
+        // If primary provider fails (e.g. 410 Gone, 402 Billing, 500 Error), 
+        // fallback to free Pollinations API automatically
+        console.warn(`Provider ${provider} failed: ${error.message}. Falling back to Pollinations.`)
+
+        // Return Pollinations result immediately
+        return await generateWithPollinations(prompt, imageCount)
     }
 }
 
