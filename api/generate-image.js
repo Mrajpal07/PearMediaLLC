@@ -141,6 +141,12 @@ async function generateWithOpenAI(prompt, imageCount) {
 async function generateImages(prompt, imageCount) {
     let provider = (process.env.IMAGE_PROVIDER || '').toLowerCase()
 
+    // Sanitization: If provider is a legacy one we removed, clear it
+    if (provider === 'huggingface' || provider === 'pollinations' || provider === 'fallback') {
+        console.warn(`Legacy provider '${provider}' detected in env. Switching to auto-detection.`)
+        provider = ''
+    }
+
     if (!provider) {
         if (process.env.GOOGLE_API_KEY) provider = 'gemini'
         else if (process.env.TOGETHER_API_KEY) provider = 'together'
