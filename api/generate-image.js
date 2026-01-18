@@ -141,27 +141,24 @@ async function generateWithOpenAI(prompt, imageCount) {
 async function generateImages(prompt, imageCount) {
     let provider = (process.env.IMAGE_PROVIDER || '').toLowerCase()
 
-    // Sanitization: If provider is a legacy one we removed, clear it
-    if (provider === 'huggingface' || provider === 'pollinations' || provider === 'fallback') {
-        console.warn(`Legacy provider '${provider}' detected in env. Switching to auto-detection.`)
-        provider = ''
-    }
-
     if (!provider) {
-        if (process.env.GOOGLE_API_KEY) provider = 'gemini'
-        else if (process.env.TOGETHER_API_KEY) provider = 'together'
+        // Gemini Imagen 3 is currently restricted/beta for API keys.
+        // Disabling auto-selection to avoid "Model not found" errors.
+        // if (process.env.GOOGLE_API_KEY) provider = 'gemini' 
+
+        if (process.env.TOGETHER_API_KEY) provider = 'together'
         else if (process.env.OPENAI_API_KEY) provider = 'openai'
     }
 
     // If no keys configured, throw immediately so Frontend Puter.js takes over
     if (!provider) {
-        throw new Error('No API keys configured. Switching to Puter.js fallback.')
+        throw new Error('No supported API keys configured. Switching to Puter.js fallback.')
     }
 
     console.log(`Selected Provider: ${provider}`)
 
     switch (provider) {
-        case 'gemini': return await generateWithGemini(prompt, imageCount)
+        // case 'gemini': return await generateWithGemini(prompt, imageCount)
         case 'together': return await generateWithTogether(prompt, imageCount)
         case 'openai': return await generateWithOpenAI(prompt, imageCount)
         default:
