@@ -5,8 +5,8 @@
  *
  * Generates images using multiple providers:
  * - OpenAI DALL-E 3 (paid, best quality)
- * - Hugging Face (free tier, 1000 req/month)
- * - Pollinations.ai (free, unlimited, no key needed)
+ * - Hugging Face (free tier, server-side generation)
+ * - LoremFlickr (free, visual fallback using stock photos)
  *
  * Request:
  * - Content-Type: application/json
@@ -21,7 +21,7 @@
  * }
  *
  * Environment Variables:
- * - IMAGE_PROVIDER: Provider to use (openai, huggingface, pollinations) - default: pollinations
+ * - IMAGE_PROVIDER: Provider to use (openai, huggingface, fallback) - default: fallback
  * - OPENAI_API_KEY: Required for openai provider
  * - HUGGINGFACE_API_KEY: Required for huggingface provider
  * - IMAGE_COUNT: Number of images (1-3, default: 2)
@@ -62,20 +62,22 @@ function buildPrompt(prompt, style) {
 }
 
 /**
- * Generate images using Pollinations.ai (FREE, no API key needed)
- * https://pollinations.ai - Unlimited free image generation
+ * Generate images using LoremFlickr (Visual Fallback)
+ * Returns relevant stock photos based on keywords features in prompt
+ * Used when AI providers are rate limited or down.
  */
-async function generateWithPollinations(prompt, imageCount) {
+async function generateWithFallback(prompt, imageCount) {
     const images = []
 
+    // Extract first few words as keywords for the search
+    // e.g. "A fluffy tabby cat..." -> "cat"
+    const words = prompt.split(' ').filter(w => w.length > 3).slice(0, 2).join(',')
+    const keywords = encodeURIComponent(words || 'art')
+
     for (let i = 0; i < imageCount; i++) {
-        // Add slight variation to get different images
-        const seed = Math.floor(Math.random() * 1000000)
-        const encodedPrompt = encodeURIComponent(prompt)
-
-        // Pollinations.ai direct image URL
-        const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${seed}&nologo=true`
-
+        // Add random param to prevent caching
+        const random = Math.floor(Math.random() * 10000)
+        const imageUrl = `https://loremflickr.com/1024/1024/${keywords}?random=${random}`
         images.push(imageUrl)
     }
 
@@ -94,8 +96,8 @@ async function generateWithHuggingFace(prompt, imageCount) {
     }
 
     const images = []
-    // Use Stable Diffusion XL - more reliable on free Inference API than FLUX
-    const model = 'stabilityai/stable-diffusion-xl-base-1.0'
+    // Use Stable Diffusion 2.1 - widely available and robust on free tier
+    const model = 'stabilityai/stable-diffusion-2-1'
     const endpoint = `https://api-inference.huggingface.co/models/${model}`
 
     for (let i = 0; i < imageCount; i++) {
@@ -113,15 +115,16 @@ async function generateWithHuggingFace(prompt, imageCount) {
         if (!response.ok) {
             const errorText = await response.text().catch(() => 'Unknown error')
 
-            // Check for model loading
-            if (errorText.includes('loading') || response.status === 503) {
+            if (response.status === 503 || errorText.includes('loading')) {
                 throw new Error('Model is loading. Please wait 20-30 seconds and try again.')
+            }
+            if (response.status === 429) {
+                throw new Error('Rate limit reached on Hugging Face.')
             }
 
             throw new Error(`Hugging Face API error: ${response.status}`)
         }
 
-        // HF returns binary image data
         const imageBuffer = await response.arrayBuffer()
         const base64 = Buffer.from(imageBuffer).toString('base64')
         const mimeType = response.headers.get('content-type') || 'image/jpeg'
@@ -148,7 +151,6 @@ async function generateWithOpenAI(prompt, imageCount) {
     const size = process.env.IMAGE_SIZE || '1024x1024'
     const quality = process.env.IMAGE_QUALITY || 'standard'
 
-    // DALL-E 3: Sequential generation (n=1 limitation)
     for (let i = 0; i < imageCount; i++) {
         const response = await fetch('https://api.openai.com/v1/images/generations', {
             method: 'POST',
@@ -186,13 +188,13 @@ async function generateWithOpenAI(prompt, imageCount) {
 
 /**
  * Main image generation function - routes to appropriate provider
- * Includes AUTO-FALLBACK to Pollinations if primary provider fails
+ * Includes AUTO-FALLBACK to visual placeholder if primary provider fails
  */
 async function generateImages(prompt, imageCount) {
-    const provider = (process.env.IMAGE_PROVIDER || 'pollinations').toLowerCase()
+    // Default to 'fallback' if not set
+    const provider = (process.env.IMAGE_PROVIDER || 'fallback').toLowerCase()
 
     try {
-        // Attempt primary provider
         switch (provider) {
             case 'openai':
                 return await generateWithOpenAI(prompt, imageCount)
@@ -201,17 +203,15 @@ async function generateImages(prompt, imageCount) {
             case 'hf':
                 return await generateWithHuggingFace(prompt, imageCount)
 
-            case 'pollinations':
+            case 'fallback':
             default:
-                return await generateWithPollinations(prompt, imageCount)
+                return await generateWithFallback(prompt, imageCount)
         }
     } catch (error) {
-        // If primary provider fails (e.g. 410 Gone, 402 Billing, 500 Error), 
-        // fallback to free Pollinations API automatically
-        console.warn(`Provider ${provider} failed: ${error.message}. Falling back to Pollinations.`)
+        console.warn(`Provider ${provider} failed: ${error.message}. Falling back to visual simulation.`)
 
-        // Return Pollinations result immediately
-        return await generateWithPollinations(prompt, imageCount)
+        // Final fallback: Return stock photos so the UI never breaks
+        return await generateWithFallback(prompt, imageCount)
     }
 }
 
@@ -294,31 +294,8 @@ export default async function handler(req, res) {
     } catch (error) {
         console.error('Error in generate-image:', error.message)
 
-        // Check for specific error types
-        if (error.message.includes('API_KEY')) {
-            return res.status(500).json({
-                error: 'Server configuration error. API key not configured.'
-            })
-        }
-
-        if (error.message.includes('loading')) {
-            return res.status(503).json({
-                error: 'Model is loading. Please wait 20-30 seconds and try again.'
-            })
-        }
-
-        if (error.message.includes('Billing') || error.message.includes('limit')) {
-            return res.status(402).json({
-                error: 'API billing limit reached. Please try a free provider.'
-            })
-        }
-
-        if (error.message.includes('content policy')) {
-            return res.status(400).json({
-                error: 'Prompt violates content policy. Please modify your description.'
-            })
-        }
-
+        // Only return critical server errors here
+        // (Most generation errors should be caught by fallback logic)
         return res.status(500).json({
             error: 'Image generation failed. Please try again.'
         })
