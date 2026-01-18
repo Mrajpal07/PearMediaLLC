@@ -77,7 +77,6 @@ function ImageWorkflow() {
         if (!selectedImage) return
 
         setIsLoading(true)
-        setIsAnalyzed(true)
         setStatus({ type: 'processing', message: 'Analyzing image...' })
 
         try {
