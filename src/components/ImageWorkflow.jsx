@@ -111,11 +111,17 @@ function ImageWorkflow() {
      * API: POST /api/generate-image { prompt, style? }
      * Response: { images: [url1, url2, ...] }
      */
+    /**
+     * Step 2 → 3: Generate variations using suggested prompt
+     * API: POST /api/generate-image { prompt, style? }
+     * Fallback: Puter.js (Client-side)
+     */
     const handleGenerateVariations = async () => {
         setIsLoading(true)
-        setStatus({ type: 'processing', message: 'Generating variations with DALL-E 3...' })
+        setStatus({ type: 'processing', message: 'Generating variations...' })
 
         try {
+            // 1. Try Backend API first (Gemini/Together/OpenAI)
             const response = await fetch('/api/generate-image', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -128,15 +134,41 @@ function ImageWorkflow() {
             const data = await response.json()
 
             if (!response.ok) {
-                throw new Error(data.error || 'Generation failed')
+                console.warn('Backend generation failed, switching to Puter.js fallback:', data.error)
+                throw new Error(data.error || 'Backend failed')
             }
 
-            // Store generated image URLs
             setGeneratedImages(data.images || [])
             setStep(3)
             setStatus({ type: 'success', message: `Generated ${data.images?.length || 0} variations!` })
+
         } catch (error) {
-            setStatus({ type: 'error', message: error.message || 'Generation failed. Please try again.' })
+            // 2. Fallback to Puter.js (Client-side) if backend fails
+            console.log('Attempting Puter.js fallback...')
+            setStatus({ type: 'processing', message: 'Using Free AI Fallback (Puter.js)...' })
+
+            try {
+                if (!window.puter) throw new Error('Puter.js not loaded')
+
+                // Puter returns an <img> element, we need the src
+                // Generating 2 images sequentially as Puter doesn't support batch count in one call easily
+                const images = []
+                for (let i = 0; i < 2; i++) {
+                    const imgElement = await window.puter.ai.txt2img(suggestedPrompt)
+                    images.push(imgElement.src)
+                }
+
+                setGeneratedImages(images)
+                setStep(3)
+                setStatus({ type: 'success', message: 'Generated with Puter.js!' })
+
+            } catch (puterError) {
+                console.error('Puter.js failed:', puterError)
+                setStatus({
+                    type: 'error',
+                    message: 'All AI services are busy. Please try again later.'
+                })
+            }
         } finally {
             setIsLoading(false)
         }
