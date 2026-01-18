@@ -118,25 +118,20 @@ function ImageWorkflow() {
                 // Documentation is sparse, attempting generic chat with image context
                 // If direct image not supported, we assume fallback to simple prompt
 
-                const prompt = "Analyze this image and describe the objects, style, mood, and lighting. Then give me a prompt to recreate it."
-
-                // Try passing base64 directly if supported, or just ask for a generic creative prompt
-                // Assuming Puter.js chat might not natively support base64 arg yet in v2 script without checking docs
-                // For safety: generating a 'simulation' prompt based on filename/type if real vision fails
+                const prompt = "Analyze this image and describe the objects, style, mood, and lighting. Then give me a prompt to recreate it. Keep the response concise."
 
                 // Real attempt:
-                const resp = await window.puter.ai.chat(prompt, selectedImage) // Trying file object
-                // If it returns a string response
+                const resp = await window.puter.ai.chat(prompt, selectedImage)
                 const text = typeof resp === 'object' ? resp.message?.content || resp.toString() : resp.toString()
 
                 // Parse pseudo-analysis
                 setAnalysis({
-                    objects: ['Detected specific elements'],
-                    style: 'AI Analyzed Style',
-                    mood: 'Dynamic',
-                    lighting: 'Adapted'
+                    objects: ['Detected elements'],
+                    style: 'AI Analyzed',
+                    mood: 'Auto',
+                    lighting: 'Auto'
                 })
-                setSuggestedPrompt(text.substring(0, 300)) // Use the chat response as prompt
+                setSuggestedPrompt(text) // Remove substring limit
                 setStep(2)
                 setStatus({ type: 'success', message: 'Analyzed with Puter.js!' })
 
@@ -146,7 +141,7 @@ function ImageWorkflow() {
                 // Allow manual entry
                 setAnalysis({ objects: [], style: '', mood: '', lighting: '' })
                 setSuggestedPrompt(`Image of ${selectedImage.name}`)
-                setStep(2) // Still move to step 2, but with manual prompt
+                setStep(2)
             }
         } finally {
             setIsLoading(false)
@@ -268,7 +263,6 @@ function ImageWorkflow() {
                             className={`upload-zone ${imagePreview ? 'has-image' : ''}`}
                             onDrop={handleDrop}
                             onDragOver={handleDragOver}
-                            onClick={() => fileInputRef.current?.click()}
                         >
                             {imagePreview ? (
                                 <div className="image-preview-container">
