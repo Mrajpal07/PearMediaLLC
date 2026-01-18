@@ -3,8 +3,7 @@
  *
  * POST /api/generate-image
  *
- * Generates images using any OpenAI-compatible image generation API.
- * Supports: OpenAI DALL-E, Hugging Face, and other compatible providers.
+ * Generates images using OpenAI DALL-E 3 API.
  *
  * Request:
  * - Content-Type: application/json
@@ -19,19 +18,10 @@
  * }
  *
  * Environment Variables:
- * - OPENAI_API_KEY: API key (OpenAI, Hugging Face, etc.) - REQUIRED
- * - OPENAI_BASE_URL: Custom base URL (default: https://api.openai.com/v1)
- * - IMAGE_MODEL: Model to use (default: dall-e-3)
- * - IMAGE_COUNT: Number of images to generate (1-10, default: 2)
+ * - OPENAI_API_KEY: OpenAI API key - REQUIRED
+ * - IMAGE_COUNT: Number of images to generate (1-3, default: 2)
  * - IMAGE_SIZE: Image dimensions (default: 1024x1024)
  * - IMAGE_QUALITY: Quality setting (default: standard, options: standard/hd)
- * - USE_HUGGINGFACE: Set to 'true' for Hugging Face compatibility
- *
- * Provider Examples:
- * - OpenAI DALL-E 3: IMAGE_MODEL=dall-e-3, OPENAI_BASE_URL=https://api.openai.com/v1
- * - Hugging Face SDXL: IMAGE_MODEL=stabilityai/stable-diffusion-xl-base-1.0,
- *                      OPENAI_BASE_URL=https://api-inference.huggingface.co/v1,
- *                      USE_HUGGINGFACE=true
  */
 
 /**
@@ -70,16 +60,12 @@ function buildPrompt(prompt, style) {
 }
 
 /**
- * Call LLM provider's image generation API
- * Supports: OpenAI DALL-E, Hugging Face, and other OpenAI-compatible APIs
+ * Call OpenAI DALL-E 3 API to generate images
  */
 async function generateImages(prompt, imageCount) {
     const apiKey = process.env.OPENAI_API_KEY
-    const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
-    const model = process.env.IMAGE_MODEL || 'dall-e-3'
     const size = process.env.IMAGE_SIZE || '1024x1024'
     const quality = process.env.IMAGE_QUALITY || 'standard'
-    const useHuggingFace = process.env.USE_HUGGINGFACE === 'true'
 
     if (!apiKey) {
         throw new Error('OPENAI_API_KEY environment variable is not set')
@@ -87,126 +73,37 @@ async function generateImages(prompt, imageCount) {
 
     const images = []
 
-    // Hugging Face uses a different API format
-    if (useHuggingFace) {
-        // Hugging Face Inference API endpoint format
-        const hfEndpoint = `https://api-inference.huggingface.co/models/${model}`
-
-        for (let i = 0; i < imageCount; i++) {
-            const response = await fetch(hfEndpoint, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${apiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    inputs: prompt,
-                    parameters: {
-                        num_inference_steps: 30,
-                        guidance_scale: 7.5
-                    }
-                })
+    // DALL-E 3: Sequential generation (n=1 limitation per request)
+    for (let i = 0; i < imageCount; i++) {
+        const response = await fetch('https://api.openai.com/v1/images/generations', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'dall-e-3',
+                prompt,
+                n: 1,
+                size,
+                quality,
+                response_format: 'url'
             })
+        })
 
-            if (!response.ok) {
-                const errorText = await response.text().catch(() => 'Unknown error')
-                let errorMessage = `Image generation failed with status ${response.status}`
-
-                try {
-                    const errorData = JSON.parse(errorText)
-                    errorMessage = errorData.error || errorMessage
-
-                    // Handle model loading message
-                    if (errorData.error && errorData.error.includes('loading')) {
-                        errorMessage = 'Model is loading. Please wait 20-30 seconds and try again.'
-                    }
-                } catch (e) {
-                    if (errorText.includes('loading')) {
-                        errorMessage = 'Model is loading. Please wait 20-30 seconds and try again.'
-                    }
-                }
-
-                throw new Error(errorMessage)
-            }
-
-            // Hugging Face returns image as binary data
-            const imageBuffer = await response.arrayBuffer()
-
-            // Convert to base64 data URL
-            const base64 = Buffer.from(imageBuffer).toString('base64')
-            const mimeType = response.headers.get('content-type') || 'image/png'
-            const dataUrl = `data:${mimeType};base64,${base64}`
-
-            images.push(dataUrl)
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}))
+            const errorMessage = errorData.error?.message || `Image generation failed with status ${response.status}`
+            throw new Error(errorMessage)
         }
-    } else {
-        // OpenAI API format
-        const isDallE3 = model.toLowerCase().includes('dall-e-3')
 
-        if (isDallE3) {
-            // DALL-E 3: Sequential generation (n=1 limitation)
-            for (let i = 0; i < imageCount; i++) {
-                const response = await fetch(`${baseUrl}/images/generations`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${apiKey}`
-                    },
-                    body: JSON.stringify({
-                        model,
-                        prompt,
-                        n: 1,
-                        size,
-                        quality,
-                        response_format: 'url'
-                    })
-                })
+        const data = await response.json()
 
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}))
-                    const errorMessage = errorData.error?.message || `Image generation failed with status ${response.status}`
-                    throw new Error(errorMessage)
-                }
-
-                const data = await response.json()
-
-                if (!data.data || !data.data[0] || !data.data[0].url) {
-                    throw new Error('Invalid response from image generation API')
-                }
-
-                images.push(data.data[0].url)
-            }
-        } else {
-            // DALL-E 2 or other providers: Batch generation
-            const response = await fetch(`${baseUrl}/images/generations`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`
-                },
-                body: JSON.stringify({
-                    model,
-                    prompt,
-                    n: imageCount,
-                    size,
-                    response_format: 'url'
-                })
-            })
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}))
-                const errorMessage = errorData.error?.message || `Image generation failed with status ${response.status}`
-                throw new Error(errorMessage)
-            }
-
-            const data = await response.json()
-
-            if (!data.data || data.data.length === 0) {
-                throw new Error('Invalid response from image generation API')
-            }
-
-            images.push(...data.data.map(item => item.url))
+        if (!data.data || !data.data[0] || !data.data[0].url) {
+            throw new Error('Invalid response from image generation API')
         }
+
+        images.push(data.data[0].url)
     }
 
     return images
@@ -282,7 +179,7 @@ export default async function handler(req, res) {
         // Build final prompt with optional style
         const finalPrompt = buildPrompt(trimmedPrompt, style)
 
-        // Generate images via DALL-E API
+        // Generate images via OpenAI DALL-E 3 API
         const imageUrls = await generateImages(finalPrompt, imageCount)
 
         // Return strict output format
