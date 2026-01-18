@@ -87,13 +87,97 @@ async function generateImages(prompt, imageCount) {
 
     const images = []
 
-    // Determine if we need sequential generation (DALL-E 3 limitation: n=1)
-    const isDallE3 = model.toLowerCase().includes('dall-e-3')
-    const needsSequential = isDallE3 || useHuggingFace
+    // Hugging Face uses a different API format
+    if (useHuggingFace) {
+        // Hugging Face Inference API endpoint format
+        const hfEndpoint = `https://api-inference.huggingface.co/models/${model}`
 
-    if (needsSequential) {
-        // Generate images sequentially
         for (let i = 0; i < imageCount; i++) {
+            const response = await fetch(hfEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    inputs: prompt,
+                    parameters: {
+                        num_inference_steps: 30,
+                        guidance_scale: 7.5
+                    }
+                })
+            })
+
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => 'Unknown error')
+                let errorMessage = `Image generation failed with status ${response.status}`
+
+                try {
+                    const errorData = JSON.parse(errorText)
+                    errorMessage = errorData.error || errorMessage
+
+                    // Handle model loading message
+                    if (errorData.error && errorData.error.includes('loading')) {
+                        errorMessage = 'Model is loading. Please wait 20-30 seconds and try again.'
+                    }
+                } catch (e) {
+                    if (errorText.includes('loading')) {
+                        errorMessage = 'Model is loading. Please wait 20-30 seconds and try again.'
+                    }
+                }
+
+                throw new Error(errorMessage)
+            }
+
+            // Hugging Face returns image as binary data
+            const imageBuffer = await response.arrayBuffer()
+
+            // Convert to base64 data URL
+            const base64 = Buffer.from(imageBuffer).toString('base64')
+            const mimeType = response.headers.get('content-type') || 'image/png'
+            const dataUrl = `data:${mimeType};base64,${base64}`
+
+            images.push(dataUrl)
+        }
+    } else {
+        // OpenAI API format
+        const isDallE3 = model.toLowerCase().includes('dall-e-3')
+
+        if (isDallE3) {
+            // DALL-E 3: Sequential generation (n=1 limitation)
+            for (let i = 0; i < imageCount; i++) {
+                const response = await fetch(`${baseUrl}/images/generations`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model,
+                        prompt,
+                        n: 1,
+                        size,
+                        quality,
+                        response_format: 'url'
+                    })
+                })
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}))
+                    const errorMessage = errorData.error?.message || `Image generation failed with status ${response.status}`
+                    throw new Error(errorMessage)
+                }
+
+                const data = await response.json()
+
+                if (!data.data || !data.data[0] || !data.data[0].url) {
+                    throw new Error('Invalid response from image generation API')
+                }
+
+                images.push(data.data[0].url)
+            }
+        } else {
+            // DALL-E 2 or other providers: Batch generation
             const response = await fetch(`${baseUrl}/images/generations`, {
                 method: 'POST',
                 headers: {
@@ -103,10 +187,9 @@ async function generateImages(prompt, imageCount) {
                 body: JSON.stringify({
                     model,
                     prompt,
-                    n: 1,
+                    n: imageCount,
                     size,
-                    quality: isDallE3 ? quality : undefined, // Only DALL-E 3 supports quality
-                    response_format: 'url' // 'url' or 'b64_json'
+                    response_format: 'url'
                 })
             })
 
@@ -118,42 +201,12 @@ async function generateImages(prompt, imageCount) {
 
             const data = await response.json()
 
-            if (!data.data || !data.data[0] || !data.data[0].url) {
+            if (!data.data || data.data.length === 0) {
                 throw new Error('Invalid response from image generation API')
             }
 
-            images.push(data.data[0].url)
+            images.push(...data.data.map(item => item.url))
         }
-    } else {
-        // Generate all images in one request (DALL-E 2, other providers)
-        const response = await fetch(`${baseUrl}/images/generations`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model,
-                prompt,
-                n: imageCount,
-                size,
-                response_format: 'url'
-            })
-        })
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}))
-            const errorMessage = errorData.error?.message || `Image generation failed with status ${response.status}`
-            throw new Error(errorMessage)
-        }
-
-        const data = await response.json()
-
-        if (!data.data || data.data.length === 0) {
-            throw new Error('Invalid response from image generation API')
-        }
-
-        images.push(...data.data.map(item => item.url))
     }
 
     return images
