@@ -3,7 +3,10 @@
  *
  * POST /api/generate-image
  *
- * Generates images using OpenAI DALL-E 3 API.
+ * Generates images using multiple providers:
+ * - OpenAI DALL-E 3 (paid, best quality)
+ * - Hugging Face (free tier, 1000 req/month)
+ * - Pollinations.ai (free, unlimited, no key needed)
  *
  * Request:
  * - Content-Type: application/json
@@ -18,10 +21,10 @@
  * }
  *
  * Environment Variables:
- * - OPENAI_API_KEY: OpenAI API key - REQUIRED
- * - IMAGE_COUNT: Number of images to generate (1-3, default: 2)
- * - IMAGE_SIZE: Image dimensions (default: 1024x1024)
- * - IMAGE_QUALITY: Quality setting (default: standard, options: standard/hd)
+ * - IMAGE_PROVIDER: Provider to use (openai, huggingface, pollinations) - default: pollinations
+ * - OPENAI_API_KEY: Required for openai provider
+ * - HUGGINGFACE_API_KEY: Required for huggingface provider
+ * - IMAGE_COUNT: Number of images (1-3, default: 2)
  */
 
 /**
@@ -41,7 +44,6 @@ function buildPrompt(prompt, style) {
         return prompt
     }
 
-    // Subtle style incorporation based on common styles
     const styleModifiers = {
         'realistic': ', photorealistic quality',
         'cinematic': ', cinematic lighting and composition',
@@ -60,20 +62,96 @@ function buildPrompt(prompt, style) {
 }
 
 /**
- * Call OpenAI DALL-E 3 API to generate images
+ * Generate images using Pollinations.ai (FREE, no API key needed)
+ * https://pollinations.ai - Unlimited free image generation
  */
-async function generateImages(prompt, imageCount) {
+async function generateWithPollinations(prompt, imageCount) {
+    const images = []
+
+    for (let i = 0; i < imageCount; i++) {
+        // Add slight variation to get different images
+        const seed = Math.floor(Math.random() * 1000000)
+        const encodedPrompt = encodeURIComponent(prompt)
+
+        // Pollinations.ai direct image URL
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${seed}&nologo=true`
+
+        images.push(imageUrl)
+    }
+
+    return images
+}
+
+/**
+ * Generate images using Hugging Face Inference API (FREE tier: 1000 req/month)
+ * Requires HUGGINGFACE_API_KEY environment variable
+ */
+async function generateWithHuggingFace(prompt, imageCount) {
+    const apiKey = process.env.HUGGINGFACE_API_KEY
+
+    if (!apiKey) {
+        throw new Error('HUGGINGFACE_API_KEY environment variable is not set')
+    }
+
+    const images = []
+    // Using FLUX.1-schnell - fast and free
+    const model = 'black-forest-labs/FLUX.1-schnell'
+    const endpoint = `https://api-inference.huggingface.co/models/${model}`
+
+    for (let i = 0; i < imageCount; i++) {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                inputs: prompt,
+                parameters: {
+                    num_inference_steps: 4
+                }
+            })
+        })
+
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => 'Unknown error')
+
+            // Check for model loading
+            if (errorText.includes('loading') || response.status === 503) {
+                throw new Error('Model is loading. Please wait 20-30 seconds and try again.')
+            }
+
+            throw new Error(`Hugging Face API error: ${response.status}`)
+        }
+
+        // HF returns binary image data
+        const imageBuffer = await response.arrayBuffer()
+        const base64 = Buffer.from(imageBuffer).toString('base64')
+        const mimeType = response.headers.get('content-type') || 'image/jpeg'
+        const dataUrl = `data:${mimeType};base64,${base64}`
+
+        images.push(dataUrl)
+    }
+
+    return images
+}
+
+/**
+ * Generate images using OpenAI DALL-E 3 (PAID)
+ * Requires OPENAI_API_KEY environment variable
+ */
+async function generateWithOpenAI(prompt, imageCount) {
     const apiKey = process.env.OPENAI_API_KEY
-    const size = process.env.IMAGE_SIZE || '1024x1024'
-    const quality = process.env.IMAGE_QUALITY || 'standard'
 
     if (!apiKey) {
         throw new Error('OPENAI_API_KEY environment variable is not set')
     }
 
     const images = []
+    const size = process.env.IMAGE_SIZE || '1024x1024'
+    const quality = process.env.IMAGE_QUALITY || 'standard'
 
-    // DALL-E 3: Sequential generation (n=1 limitation per request)
+    // DALL-E 3: Sequential generation (n=1 limitation)
     for (let i = 0; i < imageCount; i++) {
         const response = await fetch('https://api.openai.com/v1/images/generations', {
             method: 'POST',
@@ -93,20 +171,40 @@ async function generateImages(prompt, imageCount) {
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}))
-            const errorMessage = errorData.error?.message || `Image generation failed with status ${response.status}`
+            const errorMessage = errorData.error?.message || `OpenAI API error: ${response.status}`
             throw new Error(errorMessage)
         }
 
         const data = await response.json()
 
         if (!data.data || !data.data[0] || !data.data[0].url) {
-            throw new Error('Invalid response from image generation API')
+            throw new Error('Invalid response from OpenAI API')
         }
 
         images.push(data.data[0].url)
     }
 
     return images
+}
+
+/**
+ * Main image generation function - routes to appropriate provider
+ */
+async function generateImages(prompt, imageCount) {
+    const provider = (process.env.IMAGE_PROVIDER || 'pollinations').toLowerCase()
+
+    switch (provider) {
+        case 'openai':
+            return await generateWithOpenAI(prompt, imageCount)
+
+        case 'huggingface':
+        case 'hf':
+            return await generateWithHuggingFace(prompt, imageCount)
+
+        case 'pollinations':
+        default:
+            return await generateWithPollinations(prompt, imageCount)
+    }
 }
 
 export default async function handler(req, res) {
@@ -179,10 +277,9 @@ export default async function handler(req, res) {
         // Build final prompt with optional style
         const finalPrompt = buildPrompt(trimmedPrompt, style)
 
-        // Generate images via OpenAI DALL-E 3 API
+        // Generate images using configured provider
         const imageUrls = await generateImages(finalPrompt, imageCount)
 
-        // Return strict output format
         return res.status(200).json({
             images: imageUrls
         })
@@ -190,15 +287,21 @@ export default async function handler(req, res) {
         console.error('Error in generate-image:', error.message)
 
         // Check for specific error types
-        if (error.message.includes('OPENAI_API_KEY')) {
+        if (error.message.includes('API_KEY')) {
             return res.status(500).json({
                 error: 'Server configuration error. API key not configured.'
             })
         }
 
-        if (error.message.includes('Image generation failed') || error.message.includes('Invalid response')) {
-            return res.status(502).json({
-                error: 'Failed to generate images. Please try again.'
+        if (error.message.includes('loading')) {
+            return res.status(503).json({
+                error: 'Model is loading. Please wait 20-30 seconds and try again.'
+            })
+        }
+
+        if (error.message.includes('Billing') || error.message.includes('limit')) {
+            return res.status(402).json({
+                error: 'API billing limit reached. Please try a free provider.'
             })
         }
 
@@ -209,7 +312,7 @@ export default async function handler(req, res) {
         }
 
         return res.status(500).json({
-            error: 'Internal server error. Please try again later.'
+            error: 'Image generation failed. Please try again.'
         })
     }
 }
